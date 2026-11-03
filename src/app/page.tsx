@@ -22,6 +22,7 @@ import {
 import { Navbar, HubTab } from "@/components/Navbar";
 import { CreateSquadModal } from "@/components/CreateSquadModal";
 import { AutoSweeperPanel } from "@/components/AutoSweeperPanel";
+import { ThesisSection } from "@/components/ThesisSection";
 import {
   PumpCapsuleIcon,
   RosterSlotBar,
@@ -260,7 +261,7 @@ function HubContent() {
 
   useEffect(() => {
     const t = searchParams.get("tab") as HubTab | null;
-    if (t && ["trenches", "launch", "leaderboard", "earnings"].includes(t)) {
+    if (t && ["trenches", "launch", "leaderboard", "earnings", "thesis"].includes(t)) {
       setActiveTab(t);
     }
     const sqId = searchParams.get("squadId");
@@ -921,10 +922,10 @@ function HubContent() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => setActiveTab("leaderboard")}
-                          className="px-4 py-2.5 bg-[#13062e] hover:bg-[#1e0b45] text-[#f8f6ff] border-2 border-[#090314] shadow-[3px_3px_0px_#090314] text-xs font-black uppercase tracking-wide cursor-pointer transition whitespace-nowrap"
+                          onClick={() => setActiveTab("thesis")}
+                          className="px-4 py-2.5 bg-[#13062e] hover:bg-[#1e0b45] text-[#24e063] border-2 border-[#090314] shadow-[3px_3px_0px_#090314] text-xs font-black uppercase tracking-wide cursor-pointer transition whitespace-nowrap"
                         >
-                          Browse Squads →
+                          Why Squadron? (The Thesis) →
                         </button>
                       </div>
                     </div>
@@ -1192,47 +1193,75 @@ function HubContent() {
               </div>
             )}
 
-            {/* 3. QUICK-SELECT SQUAD ROSTER STRIP */}
+            {/* 3. SQUADRON SYNDICATE DIRECTORY (ACTIVE PUMP.FUN SQUADS) */}
             <div className="border-2 border-[#291552] bg-[#130829] shadow-[4px_4px_0px_#05010a]">
-              <div className="px-4 py-2 border-b-2 border-[#291552] bg-[#0d041f] flex items-center justify-between text-[11px] font-mono">
-                <span className="text-[#d8ff00] font-bold uppercase">
-                  ACTIVE PUMP.FUN SQUADS · SELECT ANY SQUAD TO INSPECT OR LAUNCH
-                </span>
-                <span className="text-[#a594c7]">
-                  GREEN = NATIVE 10 CAP · VOLT = 11–20 OVERDRIVE
-                </span>
+              <div className="px-4 py-2.5 border-b-2 border-[#291552] bg-[#0d041f] flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono">
+                <div className="flex items-center gap-2">
+                  <span className="text-[#d8ff00] font-bold uppercase">
+                    ACTIVE PUMP.FUN SQUAD SYNDICATES ({leaderboard.length})
+                  </span>
+                  <span className="hidden sm:inline text-[#a594c7]">
+                    · GREEN = NATIVE 10 CAP · VOLT = 11–20 OVERDRIVE
+                  </span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setCreateSquadOpen(true)}
+                    className="text-[#24e063] font-bold hover:underline cursor-pointer"
+                  >
+                    + Register Custom 20-Wallet Squad
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("leaderboard")}
+                    className="text-[#d8ff00] font-bold hover:underline cursor-pointer"
+                  >
+                    Full Leaderboard →
+                  </button>
+                </div>
               </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 divide-y-2 sm:divide-y-0 sm:divide-x-2 divide-[#291552]">
-                {leaderboard.slice(0, 6).map((sq) => (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 divide-y sm:divide-y-0 sm:divide-x divide-[#291552]">
+                {leaderboard.slice(0, 8).map((sq) => (
                   <div
                     key={sq.id}
-                    className="p-3.5 hover:bg-[#1a0c38] transition-colors flex flex-col justify-between gap-2.5"
+                    className="p-4 hover:bg-[#1a0c38] transition-colors flex flex-col justify-between gap-3 border-b border-[#291552]"
                   >
-                    <div className="space-y-1.5">
+                    <div className="space-y-2">
                       <div className="flex items-center justify-between gap-1">
                         <Link
                           href={`/squads/${encodeURIComponent(sq.id)}`}
-                          className="text-xs font-black text-[#f8f6ff] hover:text-[#d8ff00] truncate"
+                          className="text-sm font-black text-[#f8f6ff] hover:text-[#d8ff00] truncate flex items-center gap-1.5"
                         >
-                          @{sq.username}
+                          <span>@{sq.username}</span>
+                          {sq.isVerified && (
+                            <CheckCircle2 className="w-3.5 h-3.5 text-[#24e063] shrink-0" />
+                          )}
                         </Link>
-                        <span className="text-[10px] font-mono font-bold text-[#d8ff00]">
+                        <span className="px-1.5 py-0.5 bg-[#0b0418] border border-[#291552] text-[10px] font-mono font-bold text-[#d8ff00]">
                           #{sq.rank}
                         </span>
                       </div>
                       <RosterSlotBar memberCount={sq.memberCount} />
-                      <div className="text-[10px] font-mono text-[#a594c7] flex items-center justify-between">
-                        <span>{sq.memberCount}/20 WALLETS</span>
+                      <div className="text-[11px] font-mono text-[#a594c7] flex items-center justify-between">
+                        <span>
+                          <strong className="text-white">{sq.memberCount}/20</strong> WALLETS
+                        </span>
                         <span className="text-[#24e063] font-bold">{sq.repScore} REP</span>
+                        {sq.pnlUsd !== undefined && (
+                          <span className={sq.pnlUsd >= 0 ? "text-[#d8ff00] font-bold" : "text-rose-400"}>
+                            {formatCompactUsd(sq.pnlUsd)}
+                          </span>
+                        )}
                       </div>
                     </div>
 
                     <div className="flex items-center gap-1.5 pt-2 border-t border-[#291552]">
                       <Link
                         href={`/squads/${encodeURIComponent(sq.id)}`}
-                        className="btn-hangar flex-1 py-1 text-center text-[10px] font-mono"
+                        className="btn-hangar flex-1 py-1.5 text-center text-[11px] font-mono"
                       >
-                        Roster
+                        Inspect Roster
                       </Link>
                       <button
                         type="button"
@@ -1240,9 +1269,9 @@ function HubContent() {
                           handleSelectSquad(sq);
                           setActiveTab("launch");
                         }}
-                        className="btn-volt flex-1 py-1 text-[10px] font-mono cursor-pointer"
+                        className="btn-volt flex-1 py-1.5 text-[11px] font-mono cursor-pointer"
                       >
-                        + Launch
+                        + Launch Coin
                       </button>
                     </div>
                   </div>
@@ -1256,28 +1285,79 @@ function HubContent() {
                 LOADING SQUAD DEPLOYMENTS...
               </div>
             ) : filteredLaunches.length === 0 ? (
-              <div className="hangar-card p-12 text-center space-y-4">
-                <div className="flex justify-center">
-                  <PumpCapsuleIcon size={40} angle={-12} />
+              <div className="hangar-card p-6 sm:p-8 space-y-6">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 border-b-2 border-[#291552]">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <PumpCapsuleIcon size={24} angle={-12} />
+                      <span className="text-xs font-mono uppercase tracking-widest text-[#24e063] font-bold">
+                        LIVE SQUAD DEPLOYMENT FEED · READY FOR LAUNCH #1
+                      </span>
+                    </div>
+                    <h3 className="squad-display squad-title-shadow text-2xl sm:text-3xl text-[#d8ff00]">
+                      DEPLOY THE FIRST SQUADRON COIN
+                    </h3>
+                    <p className="text-xs text-[#a594c7] max-w-2xl leading-relaxed">
+                      Every coin launched here creates a Token-2022 mint on Pump.fun, locks creator fee-sharing to a dedicated Splitter Vault PDA, and streams SOL pro-rata to all 20 squad member wallets.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab("launch")}
+                      className="btn-volt px-5 py-2.5 text-xs flex items-center gap-2 cursor-pointer"
+                    >
+                      <Plus className="w-4 h-4 stroke-[3]" />
+                      <span>Open Launch Studio</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab("thesis")}
+                      className="btn-hangar px-4 py-2.5 text-xs font-mono cursor-pointer"
+                    >
+                      Read The Thesis →
+                    </button>
+                  </div>
                 </div>
-                <div className="text-xs font-mono uppercase tracking-widest text-[#a594c7]">
-                  0 SQUAD COINS DEPLOYED YET
-                </div>
-                <h3 className="squad-display squad-title-shadow text-2xl text-[#d8ff00]">
-                  LAUNCH THE FIRST SQUAD COIN
-                </h3>
-                <p className="text-xs text-[#a594c7] max-w-md mx-auto leading-relaxed">
-                  Pick any Pump.fun squad above or open the Launch Studio to deploy a token with on-chain creator fees routed automatically to every squad member.
-                </p>
-                <div className="pt-1 flex justify-center">
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab("launch")}
-                    className="btn-volt px-5 py-2.5 text-xs flex items-center gap-2 cursor-pointer"
-                  >
-                    <Plus className="w-4 h-4 stroke-[3]" />
-                    <span>Launch First Squad Coin</span>
-                  </button>
+
+                {/* 3-Step Visual Blueprint Strip inside the Board */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 font-mono text-xs">
+                  <div className="p-4 bg-[#0b0418] border-2 border-[#291552] space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="px-2 py-0.5 bg-[#d8ff00] text-[#090314] text-[10px] font-black">
+                        01 · PICK A SQUAD
+                      </span>
+                      <span className="text-[#24e063] font-bold">UP TO 20 WALLETS</span>
+                    </div>
+                    <p className="font-sans text-[#a594c7] leading-relaxed">
+                      Click <strong className="text-white">+ Launch Coin</strong> on any Pump.fun Squad above or register your own cabal&apos;s wallets in one click.
+                    </p>
+                  </div>
+
+                  <div className="p-4 bg-[#0b0418] border-2 border-[#291552] space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="px-2 py-0.5 bg-[#24e063] text-[#090314] text-[10px] font-black">
+                        02 · SET CAPSULE SPLIT
+                      </span>
+                      <span className="text-[#d8ff00] font-bold">10%–100% TO SQUAD</span>
+                    </div>
+                    <p className="font-sans text-[#a594c7] leading-relaxed">
+                      Choose the Squad vs. Creator fee split and role weights (<code className="text-white">OWNER / ADMIN / MEMBER</code>).
+                    </p>
+                  </div>
+
+                  <div className="p-4 bg-[#0b0418] border-2 border-[#291552] space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="px-2 py-0.5 bg-[#d8ff00] text-[#090314] text-[10px] font-black">
+                        03 · AUTO-SWEEP &amp; SPLIT
+                      </span>
+                      <span className="text-[#24e063] font-bold">SOLSCAN VERIFIED</span>
+                    </div>
+                    <p className="font-sans text-[#a594c7] leading-relaxed">
+                      Every coin gets a dedicated <strong className="text-[#d8ff00]">Vault Command Center</strong> with Quick-Buy, Raid Card export, and 1-click multi-wallet payouts.
+                    </p>
+                  </div>
                 </div>
               </div>
             ) : viewLayout === "grid" ? (
@@ -2497,6 +2577,16 @@ function HubContent() {
               </div>
             </div>
           </div>
+        )}
+
+        {/* =========================================================
+            TAB 5: THE THESIS & ARCHITECTURE MANIFESTO
+           ========================================================= */}
+        {activeTab === "thesis" && (
+          <ThesisSection
+            onLaunchClick={() => setActiveTab("launch")}
+            onRegisterSquadClick={() => setCreateSquadOpen(true)}
+          />
         )}
       </main>
 
