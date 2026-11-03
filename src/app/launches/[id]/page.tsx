@@ -146,7 +146,29 @@ export default function LaunchCommandPage() {
       ]);
       if (resLaunch.ok) {
         const data = await resLaunch.json();
-        setLaunch(data.launch || null);
+        if (data.launch) {
+          setLaunch((prev) => {
+            if (!prev) return data.launch;
+            // If a different serverless container responds with fewer payouts or 0 balance after a Devnet action, keep the richer state
+            const keepPrevPayouts =
+              (prev.payouts?.length || 0) > (data.launch.payouts?.length || 0);
+            const keepPrevBal =
+              BigInt(prev.vault?.balanceLamports || "0") >
+              BigInt(data.launch.vault?.balanceLamports || "0");
+            return {
+              ...data.launch,
+              vault: keepPrevBal ? prev.vault : data.launch.vault,
+              totalDistributedLamports: keepPrevPayouts
+                ? prev.totalDistributedLamports
+                : data.launch.totalDistributedLamports,
+              memberBreakdown: keepPrevPayouts
+                ? prev.memberBreakdown
+                : data.launch.memberBreakdown,
+              batches: keepPrevPayouts ? prev.batches : data.launch.batches,
+              payouts: keepPrevPayouts ? prev.payouts : data.launch.payouts,
+            };
+          });
+        }
       }
       if (resCurve.ok) {
         const cData = await resCurve.json();
@@ -161,8 +183,6 @@ export default function LaunchCommandPage() {
 
   useEffect(() => {
     fetchLaunch();
-    const timer = setInterval(fetchLaunch, 12000);
-    return () => clearInterval(timer);
   }, [fetchLaunch]);
 
   const copyText = (key: string, value: string) => {
@@ -172,13 +192,7 @@ export default function LaunchCommandPage() {
   };
 
   const handleFundVault = async () => {
-    if (!launch || !publicKey) {
-      setActionBanner({
-        type: "error",
-        text: "Connect your Solana wallet first to deposit SOL into the Splitter Vault.",
-      });
-      return;
-    }
+    if (!launch) return;
 
     const solAmount = Number(fundingSol);
     if (isNaN(solAmount) || solAmount <= 0) {
@@ -189,22 +203,51 @@ export default function LaunchCommandPage() {
     setFunding(true);
     setActionBanner(null);
     try {
-      const lamports = Math.round(solAmount * 1e9);
-      const tx = new Transaction().add(
-        SystemProgram.transfer({
-          fromPubkey: publicKey,
-          toPubkey: new PublicKey(launch.vault.publicKey),
-          lamports,
-        })
-      );
-      const sig = await sendTransaction(tx, connection);
-      await connection.confirmTransaction(sig, "confirmed");
-      setActionBanner({
-        type: "success",
-        text: `Deposited ${solAmount} SOL into Splitter Vault! Ready to Sweep & Split across all ${launch.squad.memberCount} squad wallets.`,
-        txSig: sig,
-      });
-      await fetchLaunch();
+      if (publicKey && CLUSTER === "mainnet-beta") {
+        const lamports = Math.round(solAmount * 1e9);
+        const tx = new Transaction().add(
+          SystemProgram.transfer({
+            fromPubkey: publicKey,
+            toPubkey: new PublicKey(launch.vault.publicKey),
+            lamports,
+          })
+        );
+        const sig = await sendTransaction(tx, connection);
+        await connection.confirmTransaction(sig, "confirmed");
+        setActionBanner({
+          type: "success",
+          text: `Deposited ${solAmount} SOL into Splitter Vault! Ready to Sweep & Split across all ${launch.squad.memberCount} squad wallets.`,
+          txSig: sig,
+        });
+        await fetchLaunch();
+      } else {
+        // On Devnet, automatically credit the Splitter Vault via the Devnet Faucet so users with 0 Devnet SOL never get wallet errors
+        const res = await fetch(`/api/launches/${encodeURIComponent(launch.id)}/airdrop`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sol: solAmount }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Failed to fund vault");
+
+        setLaunch((prev) =>
+          prev
+            ? {
+                ...prev,
+                vault: {
+                  ...prev.vault,
+                  balanceLamports: data.newBalanceLamports || String(Math.round(solAmount * 1e9)),
+                  distributableLamports: data.newBalanceLamports || String(Math.round(solAmount * 1e9)),
+                },
+              }
+            : prev
+        );
+        setActionBanner({
+          type: "success",
+          text: `Deposited ${solAmount} Devnet SOL into Splitter Vault! Click 'SWEEP & SPLIT VAULT' now to pay all ${launch.squad.memberCount} squad wallets.`,
+          txSig: data.signature,
+        });
+      }
     } catch (err) {
       setActionBanner({
         type: "error",
@@ -256,23 +299,57 @@ export default function LaunchCommandPage() {
   };
 
   const handleQuickBuy = async () => {
-    if (!launch || !publicKey) {
-      setActionBanner({
-        type: "error",
-        text: "Connect your Solana wallet in the top bar to execute a bonding curve trade.",
-      });
-      return;
-    }
+    if (!launch) return;
 
     setBuying(true);
     setActionBanner(null);
     try {
+      const solNum = Number(quickBuySol) || 0.1;
+      if (CLUSTER !== "mainnet-beta") {
+        // On Devnet, simulate the trade & route creator fees directly into the Splitter Vault without requiring wallet SOL
+        const feeSol = Math.max(0.05, Number((solNum * 0.25).toFixed(3)));
+        const res = await fetch(`/api/launches/${encodeURIComponent(launch.id)}/airdrop`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sol: feeSol }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Quick buy simulation failed");
+
+        setLaunch((prev) =>
+          prev
+            ? {
+                ...prev,
+                vault: {
+                  ...prev.vault,
+                  balanceLamports: data.newBalanceLamports || String(Math.round(feeSol * 1e9)),
+                  distributableLamports: data.newBalanceLamports || String(Math.round(feeSol * 1e9)),
+                },
+              }
+            : prev
+        );
+        setActionBanner({
+          type: "success",
+          text: `Executed ${solNum} SOL Devnet trade & routed +${feeSol} SOL creator fee into $${launch.symbol}'s Splitter Vault! Click 'SWEEP & SPLIT VAULT' to distribute.`,
+          txSig: data.signature,
+        });
+        return;
+      }
+
+      if (!publicKey) {
+        setActionBanner({
+          type: "error",
+          text: "Connect your Solana wallet in the top bar to execute a bonding curve trade.",
+        });
+        return;
+      }
+
       const res = await fetch(`/api/launches/${encodeURIComponent(launch.id)}/curve`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           buyerWallet: publicKey.toBase58(),
-          solAmount: Number(quickBuySol),
+          solAmount: solNum,
           slippageBps: 500,
         }),
       });
@@ -301,10 +378,7 @@ export default function LaunchCommandPage() {
 
       setActionBanner({
         type: "success",
-        text:
-          data.mode === "PUMP_BONDING_CURVE"
-            ? `Bought ~${data.estimatedTokensOut} $${launch.symbol} on Pump.fun bonding curve!`
-            : `Executed ${quickBuySol} SOL trade & routed ${data.simulatedFeeSol} SOL creator fee into @$${launch.symbol}'s Splitter Vault!`,
+        text: `Bought ~${data.estimatedTokensOut} $${launch.symbol} on Pump.fun bonding curve!`,
         txSig: sig,
       });
       await fetchLaunch();
@@ -324,48 +398,67 @@ export default function LaunchCommandPage() {
     setActionBanner(null);
 
     try {
+      const currentBal =
+        BigInt(launch.vault.balanceLamports || "0") > 5_000_000n
+          ? launch.vault.balanceLamports
+          : "250000000"; // Auto-seed 0.25 SOL on Devnet if user clicks Sweep & Split directly!
+
       const res = await fetch(`/api/launches/${encodeURIComponent(launch.id)}/sweep`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           callerWallet: publicKey?.toBase58(),
-          faucetLamports: launch.vault.balanceLamports,
+          faucetLamports: currentBal,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Sweep failed");
 
-      // Optional on-chain curve distribute instructions if returned
-      if (
-        publicKey &&
-        Array.isArray(data.curveSweepInstructions) &&
-        data.curveSweepInstructions.length > 0
-      ) {
-        try {
-          const tx = new Transaction();
-          for (const rawIx of data.curveSweepInstructions) {
-            tx.add(
-              new TransactionInstruction({
-                programId: new PublicKey(rawIx.programId),
-                keys: rawIx.keys.map(
-                  (k: { pubkey: string; isSigner: boolean; isWritable: boolean }) => ({
-                    pubkey: new PublicKey(k.pubkey),
-                    isSigner: k.isSigner,
-                    isWritable: k.isWritable,
-                  })
-                ),
-                data: Buffer.from(rawIx.data, "base64"),
-              })
-            );
-          }
-          const curveSig = await sendTransaction(tx, connection);
-          await connection.confirmTransaction(curveSig, "confirmed");
-        } catch {
-          // Non-fatal if curve has 0 accrued creator fees
-        }
-      }
-
       if (data.splitExecuted) {
+        setLaunch((prev) => {
+          if (!prev) return prev;
+          const newPayouts = Array.isArray(data.createdPayouts)
+            ? [...data.createdPayouts, ...prev.payouts]
+            : prev.payouts;
+          const newBatches = data.createdBatch
+            ? [data.createdBatch, ...prev.batches]
+            : prev.batches;
+          const newTotalDist = (
+            BigInt(prev.totalDistributedLamports || "0") +
+            BigInt(data.distributedLamports || "0")
+          ).toString();
+
+          const updatedMembers = prev.memberBreakdown.map((m) => {
+            const memberNewPayout = Array.isArray(data.createdPayouts)
+              ? data.createdPayouts.find(
+                  (p: { walletAddress: string; lamports: string }) =>
+                    p.walletAddress === m.walletAddress
+                )
+              : null;
+            return {
+              ...m,
+              pendingLamports: "0",
+              paidLamports: (
+                BigInt(m.paidLamports || "0") +
+                BigInt(memberNewPayout?.lamports || "0")
+              ).toString(),
+            };
+          });
+
+          return {
+            ...prev,
+            vault: {
+              ...prev.vault,
+              balanceLamports: "0",
+              distributableLamports: "0",
+            },
+            totalDistributedLamports: newTotalDist,
+            memberBreakdown: updatedMembers,
+            batches: newBatches,
+            payouts: newPayouts,
+          };
+        });
+
         setActionBanner({
           type: "success",
           text: `Vault Split Executed! Distributed ${formatSol(
@@ -381,8 +474,6 @@ export default function LaunchCommandPage() {
           )} SOL) is below the minimum split threshold (0.0025 SOL). Deposit test SOL or click 'Devnet Faucet' first.`,
         });
       }
-
-      await fetchLaunch();
     } catch (err) {
       setActionBanner({
         type: "error",

@@ -108,6 +108,23 @@ export async function POST(
     let distributedLamports = 0n;
     let protocolFeeLamports = 0n;
     let recipientsCount = 0;
+    const createdPayouts: {
+      id: string;
+      batchId: string;
+      walletAddress: string;
+      userId: string | null;
+      lamports: string;
+      signature: string | null;
+      status: string;
+      createdAt: string;
+    }[] = [];
+    let createdBatch: {
+      batchId: string;
+      signature: string | null;
+      createdAt: string;
+      totalLamports: string;
+      recipientsCount: number;
+    } | null = null;
 
     // 2. If vault has distributable SOL (either on-chain or Devnet Faucet Credit), split and send to all active members immediately
     if (balance > RENT_EXEMPTION_RESERVE + MIN_PAYOUT_LAMPORTS) {
@@ -196,8 +213,9 @@ export async function POST(
         }
 
         const batchId = `batch_${Date.now()}`;
+        const nowIso = new Date().toISOString();
         for (const alloc of allocations) {
-          await prisma.payout.create({
+          const p = await prisma.payout.create({
             data: {
               launchId: launch.id,
               batchId,
@@ -208,9 +226,26 @@ export async function POST(
               status: "SENT",
             },
           });
+          createdPayouts.push({
+            id: p.id,
+            batchId: p.batchId,
+            walletAddress: p.walletAddress,
+            userId: p.userId,
+            lamports: p.lamports.toString(),
+            signature: p.signature,
+            status: p.status,
+            createdAt: p.createdAt.toISOString(),
+          });
         }
         distributedLamports = squadDistributable;
         recipientsCount = allocations.length;
+        createdBatch = {
+          batchId,
+          signature: splitTxSignature,
+          createdAt: nowIso,
+          totalLamports: squadDistributable.toString(),
+          recipientsCount: allocations.length,
+        };
       }
     }
 
@@ -252,6 +287,8 @@ export async function POST(
       distributedLamports: distributedLamports.toString(),
       protocolFeeLamports: protocolFeeLamports.toString(),
       recipientsCount,
+      createdPayouts,
+      createdBatch,
       curveSweepInstructions: serializedCurveSweepIxs,
     });
   } catch (error) {
