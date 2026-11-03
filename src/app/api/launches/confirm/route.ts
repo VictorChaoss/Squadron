@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma, ensureLaunchHydrated } from "@/lib/prisma";
 
 export async function POST(request: Request) {
   try {
@@ -8,6 +8,8 @@ export async function POST(request: Request) {
     if (!launchId) {
       return NextResponse.json({ error: "Missing launchId" }, { status: 400 });
     }
+
+    await ensureLaunchHydrated(launchId);
 
     const updated = await prisma.launch.update({
       where: { id: launchId },

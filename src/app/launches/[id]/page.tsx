@@ -228,12 +228,23 @@ export default function LaunchCommandPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Devnet airdrop failed");
 
+      setLaunch((prev) =>
+        prev
+          ? {
+              ...prev,
+              vault: {
+                ...prev.vault,
+                balanceLamports: data.newBalanceLamports || "250000000",
+                distributableLamports: data.newBalanceLamports || "248500000",
+              },
+            }
+          : prev
+      );
       setActionBanner({
         type: "success",
         text: `Airdropped ${data.airdroppedSol} Devnet SOL directly into Splitter Vault! Click 'Sweep & Split' now to pay all ${launch.squad.memberCount} squad wallets.`,
         txSig: data.signature,
       });
-      await fetchLaunch();
     } catch (err) {
       setActionBanner({
         type: "error",
@@ -318,6 +329,7 @@ export default function LaunchCommandPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           callerWallet: publicKey?.toBase58(),
+          faucetLamports: launch.vault.balanceLamports,
         }),
       });
       const data = await res.json();

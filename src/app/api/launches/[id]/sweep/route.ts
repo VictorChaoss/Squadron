@@ -7,7 +7,7 @@ import {
   Transaction,
 } from "@solana/web3.js";
 import { OnlinePumpSdk } from "@pump-fun/pump-sdk";
-import { prisma, ensureDbSchema } from "@/lib/prisma";
+import { prisma, ensureLaunchHydrated } from "@/lib/prisma";
 import { loadVaultKeypair } from "@/lib/vault";
 import { getSquadProvider } from "@/lib/squads";
 import { splitLamports, RoleWeights, EQUAL_WEIGHTS } from "@/lib/split";
@@ -17,6 +17,7 @@ const RPC_URL =
   process.env.NEXT_PUBLIC_SOLANA_RPC_URL ||
   process.env.NEXT_PUBLIC_SOLANA_RPC ||
   "https://api.devnet.solana.com";
+const CLUSTER = process.env.NEXT_PUBLIC_SOLANA_CLUSTER || "devnet";
 const RENT_EXEMPTION_RESERVE = 1_500_000n; // 0.0015 SOL reserve for rent + gas
 const MIN_PAYOUT_LAMPORTS = BigInt(process.env.MIN_PAYOUT_LAMPORTS || "1000000"); // 0.001 SOL threshold
 
@@ -32,9 +33,13 @@ export async function POST(
   const { id } = await params;
   const body = await request.json().catch(() => ({}));
   const callerWallet = body.callerWallet as string | undefined;
+  const clientFaucetLamports =
+    CLUSTER !== "mainnet-beta" && body.faucetLamports
+      ? BigInt(body.faucetLamports)
+      : 0n;
 
   try {
-    await ensureDbSchema();
+    await ensureLaunchHydrated(id);
     const launch = await prisma.launch.findUnique({
       where: { id },
       include: {
@@ -94,7 +99,9 @@ export async function POST(
       onChainBalance = 0n;
     }
 
-    const faucetCredits = launch.sweeps.reduce((acc, s) => acc + s.lamports, 0n);
+    const dbFaucetCredits = launch.sweeps.reduce((acc, s) => acc + s.lamports, 0n);
+    const faucetCredits =
+      dbFaucetCredits > 0n ? dbFaucetCredits : clientFaucetLamports;
     const balance = onChainBalance + faucetCredits;
 
     let splitTxSignature: string | null = null;

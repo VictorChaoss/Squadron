@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { Connection, PublicKey } from "@solana/web3.js";
 import { OnlinePumpSdk } from "@pump-fun/pump-sdk";
 import BN from "bn.js";
-import { prisma } from "@/lib/prisma";
+import { prisma, ensureLaunchHydrated } from "@/lib/prisma";
 
 const RPC_URL =
   process.env.SOLANA_RPC ||
@@ -21,6 +21,7 @@ export async function GET(
   const { id } = await params;
 
   try {
+    await ensureLaunchHydrated(id);
     const launch = await prisma.launch.findUnique({
       where: { id },
       include: {

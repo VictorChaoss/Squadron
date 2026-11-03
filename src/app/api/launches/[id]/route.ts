@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { Connection, PublicKey } from "@solana/web3.js";
-import { prisma, ensureDbSchema } from "@/lib/prisma";
+import { prisma, ensureLaunchHydrated } from "@/lib/prisma";
 import { splitLamports, RoleWeights, EQUAL_WEIGHTS } from "@/lib/split";
 
 const RPC_URL =
@@ -17,7 +17,7 @@ export async function GET(
   const { id } = await params;
 
   try {
-    await ensureDbSchema();
+    await ensureLaunchHydrated(id);
     const launch = await prisma.launch.findUnique({
       where: { id },
       include: {

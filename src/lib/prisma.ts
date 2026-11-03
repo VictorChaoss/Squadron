@@ -109,10 +109,16 @@ export async function ensureDbSchema(): Promise<void> {
           "lamports" BIGINT NOT NULL,
           "signature" TEXT,
           "status" TEXT NOT NULL DEFAULT 'PENDING',
+          "error" TEXT,
           "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
           CONSTRAINT "Payout_launchId_fkey" FOREIGN KEY ("launchId") REFERENCES "Launch" ("id") ON DELETE CASCADE ON UPDATE CASCADE
         );
       `);
+      try {
+        await prisma.$executeRawUnsafe(`ALTER TABLE "Payout" ADD COLUMN "error" TEXT;`);
+      } catch {
+        // Column already exists
+      }
       await prisma.$executeRawUnsafe(`
         CREATE INDEX IF NOT EXISTS "Payout_launchId_createdAt_idx" ON "Payout"("launchId", "createdAt");
       `);
@@ -124,16 +130,148 @@ export async function ensureDbSchema(): Promise<void> {
           "id" TEXT NOT NULL PRIMARY KEY,
           "launchId" TEXT NOT NULL,
           "signature" TEXT,
-          "distributableLamports" BIGINT NOT NULL DEFAULT 0,
-          "status" TEXT NOT NULL,
+          "lamports" BIGINT NOT NULL DEFAULT 0,
+          "error" TEXT,
           "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
           CONSTRAINT "Sweep_launchId_fkey" FOREIGN KEY ("launchId") REFERENCES "Launch" ("id") ON DELETE CASCADE ON UPDATE CASCADE
         );
       `);
+      try {
+        await prisma.$executeRawUnsafe(`ALTER TABLE "Sweep" ADD COLUMN "lamports" BIGINT NOT NULL DEFAULT 0;`);
+      } catch {}
+      try {
+        await prisma.$executeRawUnsafe(`ALTER TABLE "Sweep" ADD COLUMN "error" TEXT;`);
+      } catch {}
     } catch (err) {
       console.error("Schema auto-init warning:", err);
     }
   })();
 
   return globalForPrisma.schemaInitialized;
+}
+
+export interface StatelessLaunchToken {
+  m: string; // mint
+  n: string; // name
+  s: string; // symbol
+  sq: string; // squadId
+  bps: number; // squadBps
+  cw: string; // creatorWallet
+}
+
+export function encodeStatelessLaunchId(token: StatelessLaunchToken): string {
+  const json = JSON.stringify({
+    m: token.m,
+    n: token.n.slice(0, 28),
+    s: token.s.slice(0, 10),
+    sq: token.sq,
+    bps: token.bps,
+    cw: token.cw,
+  });
+  return `sqd_${Buffer.from(json, "utf8").toString("base64url")}`;
+}
+
+export function decodeStatelessLaunchId(id: string): StatelessLaunchToken | null {
+  if (!id.startsWith("sqd_")) return null;
+  try {
+    const raw = Buffer.from(id.slice(4), "base64url").toString("utf8");
+    const parsed = JSON.parse(raw) as StatelessLaunchToken;
+    if (parsed && parsed.m && parsed.s && parsed.sq) {
+      return parsed;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Self-heals a Launch, Squad, and deterministic Vault on cold Vercel serverless containers
+ * if a request lands on a different lambda container than the one that ran /api/launches/prepare.
+ */
+export async function ensureLaunchHydrated(id: string): Promise<void> {
+  await ensureDbSchema();
+  const existing = await prisma.launch.findUnique({ where: { id } });
+  if (existing) return;
+
+  const token = decodeStatelessLaunchId(id);
+  if (!token) return;
+
+  try {
+    const { getSquadProvider } = await import("@/lib/squads");
+    const { newVaultKeypair } = await import("@/lib/vault");
+
+    const provider = await getSquadProvider();
+    const squad =
+      (await provider.getSquad(token.sq)) ||
+      (await provider.getSquad("pump-alpha-syndicate"));
+    if (!squad) return;
+
+    const sqExists = await prisma.squad.findUnique({ where: { id: squad.id } });
+    if (!sqExists) {
+      await prisma.squad.create({
+        data: {
+          id: squad.id,
+          username: squad.username,
+          profileImageUrl: squad.profileImageUrl,
+          memberCount: squad.memberCount,
+          syncedAt: new Date(),
+          members: {
+            create: squad.members
+              .filter((m) => !!m.walletAddress)
+              .map((m) => ({
+                userId: m.userId,
+                username: m.username,
+                walletAddress: m.walletAddress!,
+                role: m.role,
+                active: true,
+                syncedAt: new Date(),
+              })),
+          },
+        },
+      });
+    }
+
+    const { keypair: vaultKeypair, encryptedSecret } = newVaultKeypair(token.m);
+    const vaultPubkeyStr = vaultKeypair.publicKey.toBase58();
+
+    let vaultRecord = await prisma.vault.findUnique({
+      where: { publicKey: vaultPubkeyStr },
+    });
+    if (!vaultRecord) {
+      vaultRecord = await prisma.vault.create({
+        data: {
+          publicKey: vaultPubkeyStr,
+          encryptedSecret,
+        },
+      });
+    }
+
+    const platformBps = Number(process.env.PLATFORM_FEE_BPS || 0);
+    const effectiveSquadBps = Math.min(token.bps || 8000, 10000 - platformBps);
+
+    await prisma.launch.create({
+      data: {
+        id,
+        mint: token.m,
+        name: token.n || token.s,
+        symbol: token.s,
+        description: `${token.n} ($${token.s}) — Deployed with @${squad.username} on Squadron`,
+        imageUrl: null,
+        metadataUri: `data:application/json;base64,${Buffer.from(
+          JSON.stringify({ name: token.n, symbol: token.s })
+        ).toString("base64")}`,
+        creatorWallet: token.cw,
+        squadId: squad.id,
+        vaultId: vaultRecord.id,
+        squadBps: effectiveSquadBps,
+        creatorBps: Math.max(0, 10000 - effectiveSquadBps - platformBps),
+        platformBps,
+        status: "LIVE",
+        createSig: `devnet_vault_${token.m.slice(0, 8)}`,
+      },
+    });
+  } catch (err) {
+    console.warn("Stateless launch hydration warning:", err);
+  }
 }

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { Connection } from "@solana/web3.js";
-import { prisma, ensureDbSchema } from "@/lib/prisma";
+import { prisma, ensureLaunchHydrated } from "@/lib/prisma";
 import { loadVaultKeypair } from "@/lib/vault";
 
 const RPC_URL =
@@ -30,7 +30,7 @@ export async function POST(
   }
 
   try {
-    await ensureDbSchema();
+    await ensureLaunchHydrated(id);
     const body = await request.json().catch(() => ({}));
     const requestedSol = Math.min(Math.max(Number(body.sol) || 0.25, 0.05), 2);
     const lamports = Math.round(requestedSol * 1e9);

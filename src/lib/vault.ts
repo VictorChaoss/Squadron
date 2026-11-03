@@ -36,8 +36,16 @@ export function decryptSecret(payload: string): Uint8Array {
   return new Uint8Array(Buffer.concat([d.update(enc), d.final()]));
 }
 
-export function newVaultKeypair(): { keypair: Keypair; encryptedSecret: string } {
-  const keypair = Keypair.generate();
+export function newVaultKeypair(seed?: string): { keypair: Keypair; encryptedSecret: string } {
+  const keypair = seed
+    ? Keypair.fromSeed(
+        createHash("sha256")
+          .update(key())
+          .update(":")
+          .update(seed)
+          .digest()
+      )
+    : Keypair.generate();
   return { keypair, encryptedSecret: encryptSecret(keypair.secretKey) };
 }
 

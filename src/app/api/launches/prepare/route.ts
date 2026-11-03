@@ -8,7 +8,7 @@ import {
 } from "@solana/web3.js";
 import { OnlinePumpSdk, PUMP_SDK, feeSharingConfigPda } from "@pump-fun/pump-sdk";
 import BN from "bn.js";
-import { prisma } from "@/lib/prisma";
+import { prisma, ensureDbSchema, encodeStatelessLaunchId } from "@/lib/prisma";
 import { getSquadProvider } from "@/lib/squads";
 import { newVaultKeypair } from "@/lib/vault";
 import { buildShareholders, RoleWeights, EQUAL_WEIGHTS } from "@/lib/split";
@@ -40,6 +40,7 @@ interface PrepareLaunchBody {
 
 export async function POST(request: Request) {
   try {
+    await ensureDbSchema();
     const body = (await request.json()) as PrepareLaunchBody;
     const {
       mint,
@@ -118,13 +119,17 @@ export async function POST(request: Request) {
       });
     }
 
-    // 1. Generate dedicated custodial vault for this launch
-    const { keypair: vaultKeypair, encryptedSecret } = newVaultKeypair();
+    // 1. Generate dedicated custodial vault for this launch (deterministic from mint)
+    const { keypair: vaultKeypair, encryptedSecret } = newVaultKeypair(mintPubkey.toBase58());
     const vaultPubkey = vaultKeypair.publicKey;
 
-    const vaultRecord = await prisma.vault.create({
-      data: {
+    const vaultRecord = await prisma.vault.upsert({
+      where: { publicKey: vaultPubkey.toBase58() },
+      create: {
         publicKey: vaultPubkey.toBase58(),
+        encryptedSecret,
+      },
+      update: {
         encryptedSecret,
       },
     });
@@ -253,9 +258,19 @@ export async function POST(request: Request) {
       instructions.push(updateIx);
     }
 
-    // Record pending launch
+    // Record launch with a self-healing stateless ID so any Vercel lambda container can hydrate it
+    const statelessId = encodeStatelessLaunchId({
+      m: mintPubkey.toBase58(),
+      n: name,
+      s: symbol,
+      sq: squad.id,
+      bps: effectiveSquadBps,
+      cw: creatorPubkey.toBase58(),
+    });
+
     const launchRecord = await prisma.launch.create({
       data: {
+        id: statelessId,
         mint: mintPubkey.toBase58(),
         name,
         symbol,
@@ -273,7 +288,7 @@ export async function POST(request: Request) {
         platformBps,
         initialBuySol: Number(initialBuySol) || 0,
         roleWeightsJson: JSON.stringify(roleWeights),
-        status: "PENDING",
+        status: demoMode ? "LIVE" : "PENDING",
       },
     });
 
