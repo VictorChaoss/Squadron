@@ -1,26 +1,196 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg-void: #0b0418;
+  --bg-hangar: #130829;
+  --bg-cockpit: #1a0c38;
+  --bg-violet-hi: #3b0ca3;
+  --border-grid: #291552;
+  --border-bright: #5328a3;
+  --squad-volt: #d8ff00;
+  --squad-pill: #00e676;
+  --text-white: #f8f6ff;
+  --text-lilac: #a594c7;
+  --text-dim: #634f8c;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+* {
+  box-sizing: border-box;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
+html,
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--bg-void);
+  background-image:
+    radial-gradient(ellipse 80% 50% at 50% -15%, rgba(74, 0, 224, 0.38), transparent 70%),
+    linear-gradient(rgba(41, 21, 82, 0.22) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(41, 21, 82, 0.22) 1px, transparent 1px);
+  background-size: 100% 100%, 36px 36px, 36px 36px;
+  color: var(--text-white);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", "Helvetica Neue", sans-serif;
+  letter-spacing: -0.015em;
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+.font-mono {
+  font-family: "SF Mono", "JetBrains Mono", Menlo, Monaco, Consolas, monospace !important;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Signature Squadron Display Typography */
+.squad-display {
+  font-style: italic;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: -0.03em;
+  display: inline-block;
+}
+
+.squad-title {
+  font-style: italic;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: -0.02em;
+}
+
+/* Hard-edged offset shadow matching the black outline in the Squadron logo */
+.squad-title-shadow {
+  text-shadow: 3px 3px 0px #06020d;
+}
+
+/* Crisp Architectural Card */
+.hangar-card {
+  background-color: rgba(19, 8, 41, 0.94);
+  border: 1.5px solid #291552;
+  box-shadow: 4px 4px 0px #05010a;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.hangar-card:hover {
+  border-color: #d8ff00;
+  box-shadow: 5px 5px 0px #05010a;
+}
+
+/* Clean Non-Skewed Tactical Badge (no jagged edges or line wrapping) */
+.squad-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  line-height: 1;
+}
+
+/* Primary Squadron Volt Button — hard black offset shadow, zero blurry glow */
+.btn-volt {
+  background-color: #d8ff00;
+  color: #090314;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  border: 2px solid #090314;
+  box-shadow: 3px 3px 0px #090314, 0 0 0 1px #d8ff00;
+  transition: transform 0.1s ease, background-color 0.1s ease, box-shadow 0.1s ease;
+}
+
+.btn-volt:hover:not(:disabled) {
+  background-color: #e5ff4d;
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0px #090314, 0 0 0 1px #e5ff4d;
+}
+
+.btn-volt:active:not(:disabled) {
+  transform: translate(1px, 1px);
+  box-shadow: 1px 1px 0px #090314;
+}
+
+.btn-volt:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Secondary Royal Violet Button */
+.btn-hangar {
+  background-color: #1c0c3d;
+  color: #f8f6ff;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  border: 1.5px solid #45218a;
+  box-shadow: 2px 2px 0px #05010a;
+  transition: all 0.1s ease;
+}
+
+.btn-hangar:hover {
+  border-color: #d8ff00;
+  color: #d8ff00;
+  background-color: #251052;
+}
+
+/* Solana Wallet Adapter Button Override — prevents vertical wrapping of "Select Wallet" */
+.wallet-adapter-button,
+.wallet-adapter-button-trigger {
+  height: 36px !important;
+  min-height: 36px !important;
+  line-height: 1 !important;
+  white-space: nowrap !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 0 14px !important;
+  font-family: "SF Mono", "JetBrains Mono", Menlo, Monaco, Consolas, monospace !important;
+  font-size: 12px !important;
+  font-weight: 800 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.02em !important;
+  border-radius: 0px !important;
+  background-color: #1c0c3d !important;
+  border: 2px solid #5328a3 !important;
+  color: #f8f6ff !important;
+  box-shadow: 3px 3px 0px #05010a !important;
+  transition: border-color 0.12s ease, background-color 0.12s ease !important;
+}
+
+.wallet-adapter-button:hover:not([disabled]),
+.wallet-adapter-button-trigger:hover:not([disabled]) {
+  background-color: #291259 !important;
+  border-color: #d8ff00 !important;
+  color: #d8ff00 !important;
+}
+
+.wallet-adapter-button-start-icon {
+  margin-right: 8px !important;
+  width: 16px !important;
+  height: 16px !important;
+}
+
+/* Segmented 20-Slot Roster Capacity Bar */
+.slot-grid-20 {
+  display: grid;
+  grid-template-columns: repeat(20, minmax(0, 1fr));
+  gap: 2px;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0b0418;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #351a6b;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #d8ff00;
 }

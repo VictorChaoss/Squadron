@@ -1,0 +1,105 @@
+// Squad Launch data model.
+// Dev uses SQLite; switch provider to "postgresql" for production.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// Cached snapshot of a pump.fun squad (group). Per the pump.fun API terms,
+/// API data must be re-fetched or discarded within 24h (see `syncedAt`).
+model Squad {
+  id              String   @id // pump.fun groupId
+  username        String
+  profileImageUrl String?
+  memberCount     Int      @default(0)
+  syncedAt        DateTime @default(now())
+  members         Member[]
+  launches        Launch[]
+}
+
+model Member {
+  id            String   @id @default(cuid())
+  squadId       String
+  userId        String
+  username      String?
+  walletAddress String
+  role          String   // OWNER | ADMIN | MEMBER
+  active        Boolean  @default(true)
+  syncedAt      DateTime @default(now())
+  squad         Squad    @relation(fields: [squadId], references: [id], onDelete: Cascade)
+
+  @@unique([squadId, userId])
+  @@index([walletAddress])
+}
+
+model Launch {
+  id              String    @id @default(cuid())
+  mint            String    @unique
+  name            String
+  symbol          String
+  description     String?
+  imageUrl        String?
+  twitter         String?
+  telegram        String?
+  website         String?
+  metadataUri     String
+  creatorWallet   String
+  squadId         String
+  vaultId         String    @unique
+  squadBps        Int       // share of creator fees routed to the squad vault
+  creatorBps      Int       // share kept by the creator
+  platformBps     Int       @default(0)
+  initialBuySol   Float     @default(0)
+  roleWeightsJson String    @default("{\"OWNER\":1,\"ADMIN\":1,\"MEMBER\":1}")
+  status          String    @default("PENDING") // PENDING | LIVE | FAILED
+  createSig       String?
+  feeConfigSig    String?
+  createdAt       DateTime  @default(now())
+  squad           Squad     @relation(fields: [squadId], references: [id])
+  vault           Vault     @relation(fields: [vaultId], references: [id])
+  payouts         Payout[]
+  sweeps          Sweep[]
+}
+
+/// Custodial splitter wallet (v1). Secret key is AES-256-GCM encrypted with VAULT_ENCRYPTION_KEY.
+model Vault {
+  id              String   @id @default(cuid())
+  publicKey       String   @unique
+  encryptedSecret String
+  createdAt       DateTime @default(now())
+  launch          Launch?
+}
+
+/// One sweep+distribute run pulling creator fees into the vault.
+model Sweep {
+  id        String   @id @default(cuid())
+  launchId  String
+  signature String?
+  lamports  BigInt   @default(0)
+  error     String?
+  createdAt DateTime @default(now())
+  launch    Launch   @relation(fields: [launchId], references: [id])
+}
+
+/// One member payout from a vault. `batchId` groups payouts from one split run.
+model Payout {
+  id            String   @id @default(cuid())
+  launchId      String
+  batchId       String
+  walletAddress String
+  userId        String?
+  lamports      BigInt
+  signature     String?
+  status        String   @default("PENDING") // PENDING | SENT | FAILED
+  error         String?
+  createdAt     DateTime @default(now())
+  launch        Launch   @relation(fields: [launchId], references: [id])
+
+  @@index([launchId, batchId])
+  @@index([walletAddress])
+}
