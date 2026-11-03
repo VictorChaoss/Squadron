@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { Connection, PublicKey } from "@solana/web3.js";
-import { prisma } from "@/lib/prisma";
+import { prisma, ensureDbSchema } from "@/lib/prisma";
 
 const RPC_URL =
   process.env.SOLANA_RPC ||
@@ -15,6 +15,7 @@ const RENT_EXEMPTION_RESERVE = 1_500_000n;
  */
 export async function GET() {
   try {
+    await ensureDbSchema();
     const [launches, payouts, activeMembersCount] = await Promise.all([
       prisma.launch.findMany({
         orderBy: { createdAt: "desc" },

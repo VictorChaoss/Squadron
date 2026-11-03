@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma, ensureDbSchema } from "@/lib/prisma";
 
 export async function GET(request: Request) {
+  await ensureDbSchema();
   const { searchParams } = new URL(request.url);
   const squadId = searchParams.get("squadId");
   const status = searchParams.get("status");

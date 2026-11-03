@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { Connection, PublicKey } from "@solana/web3.js";
-import { prisma } from "@/lib/prisma";
+import { prisma, ensureDbSchema } from "@/lib/prisma";
 
 const RPC_URL =
   process.env.SOLANA_RPC ||
@@ -16,6 +16,7 @@ const CLUSTER = process.env.NEXT_PUBLIC_SOLANA_CLUSTER || "devnet";
  */
 export async function GET() {
   try {
+    await ensureDbSchema();
     const startMs = Date.now();
     const conn = new Connection(RPC_URL, "confirmed");
 

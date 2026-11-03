@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { prisma, ensureDbSchema } from "@/lib/prisma";
 import { MockSquadProvider } from "./mock";
 import type { SquadDetail, SquadMember, SquadProvider, SquadRole, SquadSummary } from "./types";
 
@@ -191,6 +191,7 @@ let provider: SquadProvider | undefined;
 
 /** Uses the real pump.fun API when PUMP_API_KEY is set, otherwise mock data, wrapped with DB custom squads. */
 export async function getSquadProvider(): Promise<SquadProvider> {
+  await ensureDbSchema();
   if (provider) return provider;
   const key = process.env.PUMP_API_KEY;
   let upstream: SquadProvider;

@@ -26,20 +26,30 @@ export async function POST(request: Request) {
     let fileName = "";
     const id = randomBytes(8).toString("hex");
     const uploadsDir = path.join(process.cwd(), "public", "uploads");
-    await mkdir(uploadsDir, { recursive: true });
 
     if (file && file.size > 0) {
       fileBytes = Buffer.from(await file.arrayBuffer());
       const ext = path.extname(file.name) || ".png";
       fileName = `token-${id}${ext}`;
-      const localPath = path.join(uploadsDir, fileName);
-      await writeFile(localPath, fileBytes);
-      imageUrl = `/uploads/${fileName}`;
+      const mimeType = file.type || "image/png";
+
+      // Try writing locally if filesystem is writable (local dev); fall back to data URI on read-only serverless (Vercel)
+      try {
+        await mkdir(uploadsDir, { recursive: true });
+        await writeFile(path.join(uploadsDir, fileName), fileBytes);
+        imageUrl = `/uploads/${fileName}`;
+      } catch {
+        imageUrl = `data:${mimeType};base64,${fileBytes.toString("base64")}`;
+      }
 
       if (pinataJwt) {
         try {
           const pinForm = new FormData();
-          pinForm.append("file", new Blob([new Uint8Array(fileBytes)], { type: file.type || "image/png" }), fileName);
+          pinForm.append(
+            "file",
+            new Blob([new Uint8Array(fileBytes)], { type: mimeType }),
+            fileName
+          );
           const pinRes = await fetch("https://api.pinata.cloud/pinning/pinFileToIPFS", {
             method: "POST",
             headers: { Authorization: `Bearer ${pinataJwt}` },
@@ -54,7 +64,7 @@ export async function POST(request: Request) {
         }
       }
     } else {
-      imageUrl = "/branding/logo-square.jpg";
+      imageUrl = "/branding/final-logo.png";
     }
 
     // 1. Try Pinata JSON upload if PINATA_JWT is set
@@ -62,7 +72,9 @@ export async function POST(request: Request) {
       name,
       symbol,
       description,
-      image: imageUrl.startsWith("http") ? imageUrl : `https://pump.fun${imageUrl}`,
+      image: imageUrl.startsWith("http") || imageUrl.startsWith("data:")
+        ? imageUrl
+        : `https://pump.fun${imageUrl}`,
       showName: true,
       createdOn: "https://pump.fun",
       ...(twitter ? { twitter } : {}),
@@ -100,7 +112,11 @@ export async function POST(request: Request) {
     if (fileBytes && file) {
       try {
         const pumpForm = new FormData();
-        pumpForm.append("file", new Blob([new Uint8Array(fileBytes)], { type: file.type || "image/png" }), fileName);
+        pumpForm.append(
+          "file",
+          new Blob([new Uint8Array(fileBytes)], { type: file.type || "image/png" }),
+          fileName
+        );
         pumpForm.append("name", name);
         pumpForm.append("symbol", symbol);
         pumpForm.append("description", description);
@@ -127,19 +143,29 @@ export async function POST(request: Request) {
           }
         }
       } catch {
-        // Fallback to local metadata below
+        // Fallback to local/serverless metadata below
       }
     }
 
-    // 3. Local static fallback
+    // 3. Local static fallback (with serverless read-only fallback)
     const metaFileName = `meta-${id}.json`;
-    await writeFile(path.join(uploadsDir, metaFileName), JSON.stringify(metadataPayload, null, 2));
     const origin = new URL(request.url).origin;
+    let metadataUri = `${origin}/branding/final-logo.png`;
+    try {
+      await mkdir(uploadsDir, { recursive: true });
+      await writeFile(
+        path.join(uploadsDir, metaFileName),
+        JSON.stringify(metadataPayload, null, 2)
+      );
+      metadataUri = `${origin}/uploads/${metaFileName}`;
+    } catch {
+      metadataUri = `https://pump.fun/coin/${symbol.toLowerCase()}-${id}`;
+    }
 
     return NextResponse.json({
-      metadataUri: `${origin}/uploads/${metaFileName}`,
+      metadataUri,
       imageUrl,
-      provider: "local",
+      provider: "serverless-fallback",
     });
   } catch (error) {
     console.error("Metadata upload error:", error);

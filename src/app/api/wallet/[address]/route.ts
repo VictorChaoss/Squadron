@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { Connection, PublicKey } from "@solana/web3.js";
-import { prisma } from "@/lib/prisma";
+import { prisma, ensureDbSchema } from "@/lib/prisma";
 import { splitLamports, RoleWeights, EQUAL_WEIGHTS } from "@/lib/split";
 
 const RPC_URL = process.env.SOLANA_RPC || process.env.NEXT_PUBLIC_SOLANA_RPC || "https://api.devnet.solana.com";
@@ -16,6 +16,7 @@ export async function GET(
   }
 
   try {
+    await ensureDbSchema();
     // 1. Memberships for this wallet
     const memberships = await prisma.member.findMany({
       where: { walletAddress: address, active: true },
