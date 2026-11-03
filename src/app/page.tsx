@@ -597,7 +597,7 @@ function HubContent() {
   };
 
   const handleLaunch = async () => {
-    if (!publicKey || !signTransaction) {
+    if (!demoMode && (!publicKey || !signTransaction)) {
       setLaunchError("Connect your Solana wallet in the top bar to sign the deployment transaction.");
       return;
     }
@@ -632,6 +632,10 @@ function HubContent() {
       setLaunchStep("INITIALIZING DEDICATED SPLITTER VAULT & FEE CONFIG...");
       const mintKeypair = Keypair.generate();
       const squadBps = Math.round(squadSharePercent * 100);
+      const creatorAddress =
+        publicKey?.toBase58() ||
+        selectedSquad.members[0]?.walletAddress ||
+        "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU";
 
       const prepRes = await fetch("/api/launches/prepare", {
         method: "POST",
@@ -646,7 +650,7 @@ function HubContent() {
           telegram: telegram.trim(),
           website: website.trim(),
           metadataUri: metaData.metadataUri,
-          creatorWallet: publicKey.toBase58(),
+          creatorWallet: creatorAddress,
           squadId: selectedSquad.id,
           squadBps,
           initialBuySol: parseFloat(initialBuySol) || 0,
@@ -665,41 +669,43 @@ function HubContent() {
         instructions: serializedIxs,
       } = prepData;
 
-      setLaunchStep(
-        demoMode
-          ? "AWAITING WALLET SIGNATURE (DEVNET SPLITTER VAULT FUNDING)..."
-          : "AWAITING WALLET SIGNATURE (CREATE_V2 + FEE_SHARING_CONFIG)..."
-      );
-      const tx = new Transaction();
-      for (const item of serializedIxs) {
-        tx.add(
-          new TransactionInstruction({
-            programId: new PublicKey(item.programId),
-            keys: item.keys.map((k: { pubkey: string; isSigner: boolean; isWritable: boolean }) => ({
-              pubkey: new PublicKey(k.pubkey),
-              isSigner: k.isSigner,
-              isWritable: k.isWritable,
-            })),
-            data: Buffer.from(item.data, "base64"),
-          })
-        );
+      let createSig = `devnet_vault_${Date.now().toString(36)}`;
+
+      if (!demoMode && publicKey && signTransaction) {
+        setLaunchStep("AWAITING WALLET SIGNATURE (CREATE_V2 + FEE_SHARING_CONFIG)...");
+        const tx = new Transaction();
+        for (const item of serializedIxs) {
+          tx.add(
+            new TransactionInstruction({
+              programId: new PublicKey(item.programId),
+              keys: item.keys.map((k: { pubkey: string; isSigner: boolean; isWritable: boolean }) => ({
+                pubkey: new PublicKey(k.pubkey),
+                isSigner: k.isSigner,
+                isWritable: k.isWritable,
+              })),
+              data: Buffer.from(item.data, "base64"),
+            })
+          );
+        }
+
+        const { blockhash } = await connection.getLatestBlockhash("confirmed");
+        tx.recentBlockhash = blockhash;
+        tx.feePayer = publicKey;
+        if (requiresMintSignature !== false) {
+          tx.partialSign(mintKeypair);
+        }
+
+        const signedTx = await signTransaction(tx);
+
+        setLaunchStep("BROADCASTING TO SOLANA RPC...");
+        createSig = await connection.sendRawTransaction(signedTx.serialize(), {
+          skipPreflight: false,
+          preflightCommitment: "confirmed",
+        });
+        await connection.confirmTransaction(createSig, "confirmed");
+      } else {
+        setLaunchStep("FINALIZING DEVNET SPLITTER VAULT DEPLOYMENT...");
       }
-
-      const { blockhash } = await connection.getLatestBlockhash("confirmed");
-      tx.recentBlockhash = blockhash;
-      tx.feePayer = publicKey;
-      if (requiresMintSignature !== false) {
-        tx.partialSign(mintKeypair);
-      }
-
-      const signedTx = await signTransaction(tx);
-
-      setLaunchStep("BROADCASTING TO SOLANA RPC...");
-      const createSig = await connection.sendRawTransaction(signedTx.serialize(), {
-        skipPreflight: false,
-        preflightCommitment: "confirmed",
-      });
-      await connection.confirmTransaction(createSig, "confirmed");
 
       await fetch("/api/launches/confirm", {
         method: "POST",

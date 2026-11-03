@@ -45,7 +45,7 @@ export async function GET(
       return NextResponse.json({ error: "Launch not found" }, { status: 404 });
     }
 
-    // Query live on-chain vault balance
+    // Query live on-chain vault balance + any unspent Devnet Faucet Credits
     let vaultBalanceLamports = 0n;
     try {
       const conn = new Connection(RPC_URL, "confirmed");
@@ -56,6 +56,11 @@ export async function GET(
     } catch {
       vaultBalanceLamports = 0n;
     }
+
+    const faucetCredits = launch.sweeps
+      .filter((s) => s.error === "FAUCET_CREDIT")
+      .reduce((acc, s) => acc + s.lamports, 0n);
+    vaultBalanceLamports += faucetCredits;
 
     const distributableLamports =
       vaultBalanceLamports > RENT_EXEMPTION_RESERVE

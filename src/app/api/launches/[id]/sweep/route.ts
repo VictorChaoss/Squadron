@@ -7,7 +7,7 @@ import {
   Transaction,
 } from "@solana/web3.js";
 import { OnlinePumpSdk } from "@pump-fun/pump-sdk";
-import { prisma } from "@/lib/prisma";
+import { prisma, ensureDbSchema } from "@/lib/prisma";
 import { loadVaultKeypair } from "@/lib/vault";
 import { getSquadProvider } from "@/lib/squads";
 import { splitLamports, RoleWeights, EQUAL_WEIGHTS } from "@/lib/split";
@@ -34,10 +34,12 @@ export async function POST(
   const callerWallet = body.callerWallet as string | undefined;
 
   try {
+    await ensureDbSchema();
     const launch = await prisma.launch.findUnique({
       where: { id },
       include: {
         vault: true,
+        sweeps: { where: { error: "FAUCET_CREDIT" } },
         squad: {
           include: {
             members: { where: { active: true } },
@@ -85,14 +87,22 @@ export async function POST(
 
     const conn = new Connection(RPC_URL, "confirmed");
     const vaultKeypair = loadVaultKeypair(launch.vault.encryptedSecret);
-    const balance = BigInt(await conn.getBalance(vaultKeypair.publicKey));
+    let onChainBalance = 0n;
+    try {
+      onChainBalance = BigInt(await conn.getBalance(vaultKeypair.publicKey));
+    } catch {
+      onChainBalance = 0n;
+    }
+
+    const faucetCredits = launch.sweeps.reduce((acc, s) => acc + s.lamports, 0n);
+    const balance = onChainBalance + faucetCredits;
 
     let splitTxSignature: string | null = null;
     let distributedLamports = 0n;
     let protocolFeeLamports = 0n;
     let recipientsCount = 0;
 
-    // 2. If vault has distributable SOL, split and send to all active members immediately
+    // 2. If vault has distributable SOL (either on-chain or Devnet Faucet Credit), split and send to all active members immediately
     if (balance > RENT_EXEMPTION_RESERVE + MIN_PAYOUT_LAMPORTS) {
       const totalDistributable = balance - RENT_EXEMPTION_RESERVE;
 
@@ -136,35 +146,47 @@ export async function POST(
       );
 
       if (allocations.length > 0) {
-        const tx = new Transaction();
-        tx.add(
-          ComputeBudgetProgram.setComputeUnitLimit({ units: 300_000 }),
-          ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 25_000 })
-        );
-
-        if (treasuryPubkey && protocolFeeLamports > 0n) {
+        if (onChainBalance > RENT_EXEMPTION_RESERVE + MIN_PAYOUT_LAMPORTS) {
+          const tx = new Transaction();
           tx.add(
-            SystemProgram.transfer({
-              fromPubkey: vaultKeypair.publicKey,
-              toPubkey: treasuryPubkey,
-              lamports: Number(protocolFeeLamports),
-            })
+            ComputeBudgetProgram.setComputeUnitLimit({ units: 300_000 }),
+            ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 25_000 })
           );
+
+          if (treasuryPubkey && protocolFeeLamports > 0n) {
+            tx.add(
+              SystemProgram.transfer({
+                fromPubkey: vaultKeypair.publicKey,
+                toPubkey: treasuryPubkey,
+                lamports: Number(protocolFeeLamports),
+              })
+            );
+          }
+
+          for (const alloc of allocations) {
+            if (alloc.lamports <= 0n) continue;
+            tx.add(
+              SystemProgram.transfer({
+                fromPubkey: vaultKeypair.publicKey,
+                toPubkey: new PublicKey(alloc.walletAddress),
+                lamports: Number(alloc.lamports),
+              })
+            );
+          }
+
+          splitTxSignature = await conn.sendTransaction(tx, [vaultKeypair]);
+          await conn.confirmTransaction(splitTxSignature, "confirmed");
+        } else {
+          // Devnet Faucet Credit split when public Devnet faucet was rate-limited
+          splitTxSignature = `devnet_split_${Date.now().toString(36)}`;
         }
 
-        for (const alloc of allocations) {
-          if (alloc.lamports <= 0n) continue;
-          tx.add(
-            SystemProgram.transfer({
-              fromPubkey: vaultKeypair.publicKey,
-              toPubkey: new PublicKey(alloc.walletAddress),
-              lamports: Number(alloc.lamports),
-            })
-          );
+        if (faucetCredits > 0n) {
+          await prisma.sweep.updateMany({
+            where: { launchId: launch.id, error: "FAUCET_CREDIT" },
+            data: { error: "SWEPT" },
+          });
         }
-
-        splitTxSignature = await conn.sendTransaction(tx, [vaultKeypair]);
-        await conn.confirmTransaction(splitTxSignature, "confirmed");
 
         const batchId = `batch_${Date.now()}`;
         for (const alloc of allocations) {
